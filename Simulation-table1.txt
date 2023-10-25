@@ -1,4 +1,4 @@
-##In this file, we give the code of the proposed group testing method with \alpha=\beta=1, two covariates and fixed group size being 5.
+##In this file, we give the code of the proposed group testing method with alpha=beta=1, two covariates and fixed group size being 5.
 ##One can change alpha and beta values in line 4 to obtain other results in the Table 1. 
 
 alpha =  beta = 1 ## sensitivity and specificity
