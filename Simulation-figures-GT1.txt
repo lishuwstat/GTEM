@@ -1,0 +1,353 @@
+
+### group testing method
+
+library(gtools)
+library(doParallel)
+library(doRNG)
+library(ICsurv)
+
+setwd("D:/wd21") ### set the working directory
+
+time1= date()
+
+mm = 500 ### number of replicates
+
+#n.cores = 2 
+
+##n.cores = detectCores()
+
+#ccl <- makeCluster(n.cores)
+
+#registerDoParallel(ccl)
+
+max.loops = 1000 ## maximum number of iteration
+
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5)  ## true  value of regression parameters
+
+p <- length(theta0) ### dimension
+
+tau = 2 
+
+p.knots = 100  ### length of times of interest
+
+xlab.t = seq(0,tau,length.out= p.knots) ## times of interest, at which we obtain the survival function estimates
+
+Lambda.all = matrix(1,mm,p.knots)
+see.Lambda.all = matrix(1,mm,p.knots)
+
+Surv.all = matrix(1,mm,p.knots)
+see.Surv.all = matrix(1,mm,p.knots)
+
+
+R.rate = c()
+
+loop=c()
+
+###############################
+
+seed.start = 100
+
+iter = 1
+for( iter in 1:mm){
+
+set.seed(seed.start+iter)
+
+n = 7000  ##### group number
+
+gs = sample(c(1,2,3,4), n, replace = TRUE)  ##### group size 
+
+N = sum(gs) ## number of individuals
+
+K_n = floor(10*n^(1/3))
+
+loops = 0
+
+diff.zeta = 100
+
+tol = 0.001
+
+#########################################
+
+x1 = rbinom(N,1,0.5)
+
+x2 = rbinom(N,1,0.5)
+
+x3 = rbinom(N,1,0.5)
+
+x4 = rbinom(N,1,0.5)
+
+x5 = rbinom(N,1,0.5)
+
+x = cbind(x1,x2,x3,x4,x5)   #### N by p
+
+#############################################
+
+v <- runif(N, 0, 1)
+
+##### t <-  exp(-log(v)*(exp(as.matrix(x)%*%theta0))^(-1))-1
+
+##### t <- 5*(-log(v))*exp(-as.matrix(x)%*%theta0)
+
+t <-  10*(exp(-log(v)*(exp(as.matrix(x)%*%theta0))^(-1))-1)##Zeng 2016
+
+C <- runif(N,0,tau)
+
+phi = 1*( t<=C)  ######  true individual results
+
+alpha =  1
+
+beta = 1
+
+#####alpha =  beta = 1
+
+gamma = alpha + beta - 1
+
+temp.groups = c()
+
+for(i in 1:n){
+
+temp.groups = c(temp.groups, rep(i,each = gs[i]))
+
+}
+
+groups = permute(temp.groups) ####
+
+Ys = sapply(1:n, FUN = function(X){  ###### group testing results
+
+temp  = phi[groups == X]
+
+Delta = ifelse(sum(temp) != 0, 1, 0) ######  true group results
+
+######  add misclassification
+
+Y = ifelse(Delta == 1, 
+
+rbinom(1, 1, prob = alpha), 
+
+rbinom(1, 1, prob = 1-beta)   ) 
+
+Y
+
+})
+
+
+order.C = seq(min(C),max(C),length.out= K_n)
+k = length(order.C)
+
+Ind.xlab = matrix(rep(order.C,each =p.knots),p.knots,K_n) <= matrix(rep(xlab.t, K_n),p.knots,K_n)
+
+Lambda.true = log(0.1*xlab.t+1)
+
+g.n = list()
+
+j = 1
+for(j in 1:n){
+
+g.n[[j]] = length(C[groups == j])
+ 
+}
+
+Ind.C = list()
+
+j = 1
+for(j in 1:n){
+
+Ind.C[[j]] = matrix(rep(order.C,each = g.n[[j]] ),g.n[[j]] ,k) <= matrix(rep(C[groups == j],k), g.n[[j]] , k)
+ 
+}
+
+theta.ini = rep(0,p)
+
+lambda.ini = rep(1/N,k)
+
+theta.hat = theta.ini
+
+lambda.hat = lambda.ini
+
+############ judge start ##############
+
+while(diff.zeta >= tol && loops < max.loops){
+
+############   E-Step
+
+W = S = E.phi = E.Z = list()
+
+E.Zk  = rep(0,k)
+
+num = denom =  0
+
+j = 1
+for(j in 1:n){
+
+W[[j]] = rowSums(matrix(rep(lambda.hat, each=g.n[[j]] ), g.n[[j]] , k)*
+matrix(rep(exp(x[groups == j,]%*%as.matrix(theta.hat)),k),g.n[[j]] ,k)*Ind.C[[j]] ) 
+
+S[[j]] = exp(-W[[j]])
+
+E.phi[[j]] = Ys[j]*alpha*(1-S[[j]])/(alpha-gamma*prod(S[[j]])) + 
+(1-Ys[j])*(1-alpha)*(1-S[[j]])/(1-alpha+gamma*prod(S[[j]]))
+
+E.Z[[j]] = matrix(rep(lambda.hat, each=g.n[[j]]),g.n[[j]], k)*
+                 matrix(rep(exp(x[groups == j,]%*%as.matrix(theta.hat)),k),g.n[[j]],k)*
+                 (E.phi[[j]]*(1-S[[j]])^(-1)*Ind.C[[j]] + (1-Ind.C[[j]])) 
+
+E.Zk = E.Zk +  apply(E.Z[[j]],2,sum)
+
+temp.x = NULL
+
+if(length(x[groups == j,]) == p){temp.x =x[groups == j,]} else temp.x = t(x[groups == j,])
+
+num = num + temp.x%*%as.matrix(exp(x[groups == j,]%*%as.matrix(theta.hat))) #### p by 1
+
+denom = denom + sum(exp(x[groups == j,]%*%as.matrix(theta.hat)))   #####  1 by 1
+
+}
+
+###########M-step
+
+U = I = E.Z.sum = 0
+
+j = 1
+for(j in 1:n){
+
+U = U + t(as.matrix(x[groups == j,] - matrix(rep(num/denom,each=g.n[[j]]),g.n[[j]],p)))%*%as.matrix(apply(
+as.matrix(E.Z[[j]]),1,sum))
+
+E.Z.sum = E.Z.sum + sum(E.Z[[j]])
+
+}
+
+lambda.est = E.Zk/sum(exp(as.matrix(x)%*%as.matrix(theta.hat)))
+
+#####if(any(is.na(lambda.est))) lambda.est = lambda.ini
+
+################################################################
+
+II = -(t(as.matrix(x))%*%(as.vector(exp(x%*%theta.hat))*x)*
+denom-as.matrix(num)%*%t(as.matrix(num)))/denom^2
+
+I = E.Z.sum*II
+
+theta.est = theta.hat - solve(I)%*%U
+
+####if(any(is.na(theta.est))) theta.est = theta.ini
+
+######################################################################
+
+diff.theta = abs(theta.est-theta.hat)
+diff.lambda = abs(lambda.est-lambda.hat)
+
+
+diff.zeta = max(diff.theta, diff.lambda)
+
+theta.hat = theta.est
+lambda.hat = lambda.est
+
+loops = loops+1
+
+} ######### judge end #########
+
+the.est = theta.hat
+
+lam.est = lambda.hat
+
+loop[iter]=loops
+
+Lambda.all[iter,] = rowSums(matrix(rep(lam.est,each =p.knots),p.knots,K_n)*Ind.xlab)
+
+Surv.all[iter,] = exp(-rowSums(matrix(rep(lam.est,each =p.knots),p.knots,K_n)*Ind.xlab))
+
+R.rate[iter] = 1-mean(phi)
+
+}
+
+### output
+
+print(c('n=',n))
+print(c('theta0=',theta0))
+print(c('alpha=',alpha))
+print(c('beta=',beta))
+print(c('GroupSize=',gs))
+
+
+mean(R.rate) # right censoring rate
+
+mean(loop>=max.loops) # non-convergence rate
+
+##########################################################################
+
+Lambda.n = read.table(file="D:\\wd21\\Lambda.N1.txt")
+Lambda.n.int = as.vector(Lambda.n$x)
+
+Surv.n = read.table(file="D:\\wd21\\Surv.N1.txt")
+Surv.n.int = as.vector(Surv.n$x)
+
+
+Lambda.N = read.table(file="D:\\wd21\\Lambda.N.txt")
+Lambda.N.int = as.vector(Lambda.N$x)
+
+
+Surv.N = read.table(file="D:\\wd21\\Surv.N.txt")
+Surv.N.int = as.vector(Surv.N$x)
+
+
+
+### Plot, Proposed method for \Lambda 
+
+plot(Lambda.true ~xlab.t,  xlab=expression(paste("Time")), ylab = expression(Lambda(t)), xlim=c(0,1.5), ylim=c(0,0.2), type = "l", lwd=2,main = expression(paste(alpha, "=",  "1.00",",", beta,"=", "1.00")))
+
+# main = expression(paste(r[1],sep="  ", "=", sep="  ", r[2],sep="  ","=", sep="  ","0")),
+
+Lambda.int = apply(Lambda.all,2,mean)
+
+lines(Lambda.int~ xlab.t, type = "l",  lty = 2, lwd=2, col="red")
+
+lines(Lambda.N.int~ xlab.t, type = "l",  lty = 3, lwd=2, col="blue") 
+
+lines(Lambda.n.int~ xlab.t, type = "l",  lty = 4, lwd=2, col="green") 
+
+
+leg.txt <- c("True curve ","Proposed method","Individual-based method (N)","Individual-based method (n)")
+
+legend("bottomright",legend = leg.txt, col = c("black","red","blue","green" ),lty = c(1,2,3,4))
+
+savePlot("Lam21", type=c("eps"),device=dev.cur(),restoreConsole=TRUE)
+
+##########################################################################
+
+### Plot, Proposed method for baseline S(t)
+
+plot(exp(-Lambda.true) ~xlab.t,  xlab=expression(paste("Time")), ylab = expression(S(t)), xlim=c(0,1.5), ylim=c(0.7,1), type = "l", lwd=2,main = expression(paste(alpha, "=",  "1.00",",", beta,"=", "1.00")))
+
+# main = expression(paste(r[1],sep="  ", "=", sep="  ", r[2],sep="  ","=", sep="  ","0")),
+
+Surv.int = apply(Surv.all,2,mean)
+
+lines(Surv.int~ xlab.t, type = "l",  lty = 2, lwd=2, col="red")
+
+# type = "s":  step function
+
+lines(Surv.N.int~ xlab.t, type = "l",  lty = 3, lwd=2, col="blue")
+
+lines(Surv.n.int~ xlab.t, type = "l",  lty = 4, lwd=2, col="green")
+
+
+leg.txt <- c("True curve ","Proposed method","Individual-based method (N)","Individual-based method (n)")
+
+legend("bottomleft",legend = leg.txt, col = c("black","red","blue","green" ),lty = c(1,2,3,4))
+
+savePlot("Surv21", type=c("png"),device=dev.cur(),restoreConsole=TRUE)
+
+#####################
+
+write.table(Lambda.int,"D:\\wd21\\Lambda.GT.txt")
+write.table(exp(-Lambda.int),"D:\\wd21\\Surv.GT.txt")
+
+###############################
+
+time2 = date()
+
+print(rbind(time1,time2))
+
+
+
