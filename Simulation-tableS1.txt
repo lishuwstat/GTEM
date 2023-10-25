@@ -1,5 +1,5 @@
 ##In this file, we give the code of the proposed group testing method with alpha=beta=1, five covariates and varying group sizes.
-##One can change alpha and beta values in line 4 to obtain other results in the Table S1. 
+##One can change alpha and beta values in line 4 to obtain other results in Table S1. 
 
 alpha =  beta = 1 ## sensitivity and specificity
 
