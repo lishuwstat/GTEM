@@ -1,5 +1,5 @@
 In this example, we give the estimates of S(t) with \alpha=\beta=1, five covariates and varying group sizes.
-One can easily make some modifications to the code to obtain other results in the paper. 
+One can change alpha and beta values in the code to obtain other results in the paper. 
 
 
 In particular, please set the working directory first, such as "setwd("D:/wd21")" in our code.
