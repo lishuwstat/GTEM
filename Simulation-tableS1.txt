@@ -1,5 +1,7 @@
-##In this file, we give the code of the proposed group testing method with \alpha=\beta=1, five covariates and varying group sizes.
-##One can easily make some modifications to the code to obtain other results in the Table S1. 
+##In this file, we give the code of the proposed group testing method with alpha=beta=1, five covariates and varying group sizes.
+##One can change alpha and beta values in line 4 to obtain other results in the Table S1. 
+
+alpha =  beta = 1 ## sensitivity and specificity
 
 library(gtools)
 library(doParallel)
@@ -94,10 +96,6 @@ t <-  10*(exp(-log(v)*(exp(as.matrix(x)%*%theta0))^(-1))-1)## failure time for e
 C <- runif(N,0,tau) ## observation time for each individual 
 
 phi = 1*( t<=C)  ######  true individual results
-
-alpha =  beta = 1 ## sensitivity and specificity
-
-#####alpha =  beta = 1
 
 gamma = alpha + beta - 1
 
