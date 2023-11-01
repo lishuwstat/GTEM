@@ -1,7 +1,7 @@
 ##############################################################
 # Set working directory and read in the data 
 
-setwd("C://Users//mcmaha2//OneDrive - Clemson University//Desktop//Survival GT New//Simulated example")
+setwd("D:/wd")
 data<-read.csv("Data.csv",header=TRUE)
 
 ##################################
