@@ -1,0 +1,110 @@
+#######################################################################################
+# Read in necessary files 
+source("Support functions sim.txt")
+
+######################################################################################################################
+# This file recreates the simulations in the manuscript and supplementary material using the function sim.study(.,.,.)
+#
+# Inputs:
+# alpha = sensitivity
+# beta  = specificity
+# study = takes one of 2 values; "main" for the study presented in the main manuscript and "supp" for the study presented in the supplementary material
+#
+# Note: A user can reproduce the results in the manuscript for each strata of (alpha,beta)
+
+
+
+######################################################################################################################
+######################################################################################################################
+######################################################################################################################
+# Study in the manuscript
+
+RES<-sim.study(alpha=1, beta=1, study="main")
+
+################################################################################# 
+# The following 3 tables provide the following summary of the estimates of theta: 
+# 1) Estimated bias is provided in column 1
+# 2) Estimated standard deviation of the 500 parameter estimates is provided in column 2
+# 3) Average estimated standard error is in column 3
+# 4) Estimated empirical coverage probabilities for 95% confidence intervals are provided in column 4 
+# 
+# Note, the true value of theta is as follows: 
+theta0 = c(0.5, -0.5) 
+
+###############################
+# Results based on pooled data
+round(cbind(apply(RES$theta.p,2,mean)-theta0, apply(RES$theta.p,2,sd), apply(RES$Se.theta.p,2,mean),apply(RES$cp.theta.p,2,mean)),4)  
+
+###################################
+# Results based on individual data
+round(cbind(apply(RES$theta.i,2,mean)-theta0, apply(RES$theta.i,2,sd), apply(RES$Se.theta.i,2,mean),apply(RES$cp.theta.i,2,mean)),4)  
+
+###################################
+# Results based on individual data
+round(cbind(apply(RES$theta.is,2,mean)-theta0, apply(RES$theta.is,2,sd), apply(RES$Se.theta.is,2,mean),apply(RES$cp.theta.is,2,mean)),4)  
+
+#######################################################
+# Plotting the average estimated survival functions
+# 1) The truth is depicted as a continuous curve
+# 2) The average estimate based on group testing data is depicted as a dashed curve 
+# 3) The average estimate based on individual testing data (N=10000) is depicted as a dotted curve 
+# 4) The average estimate based on individual testing data (N=2000) is depicted as a dot-dashed curve 
+
+t<-seq(0,2,length.out= 100)
+plot(t,exp(-log(0.1*t+1)), xlab="time",ylab="Baseline survival function",type="l")
+lines(t,apply(RES$surv.p,2,mean),lty="dashed")
+lines(t,apply(RES$surv.i,2,mean),lty="dotted")
+lines(t,apply(RES$surv.is,2,mean),lty="dotdash")
+
+
+
+
+
+
+
+######################################################################################################################
+######################################################################################################################
+######################################################################################################################
+# Study in the supplementary material
+
+RES<-sim.study(alpha=1, beta=1, study="supp")
+
+################################################################################# 
+# The following 3 tables provide the following summary of the estimates of theta: 
+# 1) Estimated bias is provided in column 1
+# 2) Estimated standard deviation of the 500 parameter estimates is provided in column 2
+# 3) Average estimated standard error is in column 3
+# 4) Estimated empirical coverage probabilities for 95% confidence intervals are provided in column 4 
+# 
+# Note, the true value of theta is as follows: 
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5) # Set based on study of interest
+
+###############################
+# Results based on pooled data
+round(cbind(apply(RES$theta.p,2,mean)-theta0, apply(RES$theta.p,2,sd), apply(RES$Se.theta.p,2,mean),apply(RES$cp.theta.p,2,mean)),4)  
+
+###################################
+# Results based on individual data
+round(cbind(apply(RES$theta.i,2,mean)-theta0, apply(RES$theta.i,2,sd), apply(RES$Se.theta.i,2,mean),apply(RES$cp.theta.i,2,mean)),4)  
+
+###################################
+# Results based on individual data
+round(cbind(apply(RES$theta.is,2,mean)-theta0, apply(RES$theta.is,2,sd), apply(RES$Se.theta.is,2,mean),apply(RES$cp.theta.is,2,mean)),4)  
+
+#######################################################
+# Plotting the average estimated survival functions
+# 1) The truth is depicted as a continuous curve
+# 2) The average estimate based on group testing data is depicted as a dashed curve 
+# 3) The average estimate based on individual testing data (N=10000) is depicted as a dotted curve 
+# 4) The average estimate based on individual testing data (N=2000) is depicted as a dot-dashed curve 
+
+t<-seq(0,2,length.out= 100)
+plot(t,exp(-log(0.1*t+1)), xlab="time",ylab="Baseline survival function",type="l")
+lines(t,apply(RES$surv.p,2,mean),lty="dashed")
+lines(t,apply(RES$surv.i,2,mean),lty="dotted")
+lines(t,apply(RES$surv.is,2,mean),lty="dotdash")
+
+
+
+
+

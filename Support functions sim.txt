@@ -1,0 +1,681 @@
+survx<-function(id,beta,surv){
+
+bss<-dim(beta)[1]
+surv.save<-matrix(-99,nrow=dim(surv)[1],ncol=dim(surv)[2])
+
+for(i in 1:bss){
+surv.save[i,]<-exp(log(surv[i,])*exp(beta[i,id]))
+}
+
+std.Surv = apply(surv.save,2,sd)
+
+
+return(std.Surv)
+}
+
+
+
+##################################################################################
+# Fits the PH model to current status data measured in pools
+#
+# Ys =  pool outcome
+# x  = design matrix
+# C  = time
+# Kn = number of knots
+# alpha = vector of Se vals
+# beta =  vector of Sp vals
+# groups = vector length n that identifies which pool each subject belongs
+# g.n = vector of pool sizes
+# upool.id = vector of unique pool ids 
+
+
+
+EM.GTS<-function(Ys, x, C, Kn, alpha, beta, groups, g.n, upool.id){
+
+gamma = alpha + beta - 1
+
+n = dim(x)[1]
+p = dim(x)[2]
+
+
+#K_n = floor(n^(1/2))
+#K_n = floor(10*(length(Ys)^(1/3)))
+K_n = Kn
+
+loops<-0
+max.loops = 1000
+diff.zeta = 100
+tol = 0.001
+order.C = seq(min(C),max(C),length.out= K_n)
+
+k = length(order.C)
+
+##### g.n is the final group size 
+
+Ind.C = list()
+
+for(j in 1:length(upool.id)){
+Ind.C[[j]] = matrix(rep(order.C,each = g.n[[j]] ),g.n[[j]] ,k) <= matrix(rep(C[groups == upool.id[j]],k), g.n[[j]] , k) 
+}
+
+theta.ini = rep(0,p)
+lambda.ini = rep(1/n,k)
+theta.hat = theta.ini
+lambda.hat = lambda.ini
+
+############ judge start ##############
+while(diff.zeta >= tol && loops < max.loops){
+
+############   E-Step
+W = S = E.phi = E.Z = list()
+E.Zk  = rep(0,k)
+num = denom =  0
+for(j in 1:length(upool.id)){
+
+W[[j]] = rowSums(matrix(rep(lambda.hat, each=g.n[[j]] ), g.n[[j]] , k)*matrix(rep(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)),k),g.n[[j]] ,k)*Ind.C[[j]] ) 
+
+S[[j]] = exp(-W[[j]])
+
+E.phi[[j]] = Ys[j]*alpha[j]*(1-S[[j]])/(alpha[j]-gamma[j]*prod(S[[j]])) + (1-Ys[j])*(1-alpha[j])*(1-S[[j]])/(1-alpha[j]+gamma[j]*prod(S[[j]]))
+
+E.Z[[j]] = matrix(rep(lambda.hat, each=g.n[[j]]),g.n[[j]], k)*matrix(rep(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)),k),g.n[[j]],k)*(E.phi[[j]]*(1-S[[j]])^(-1)*Ind.C[[j]] + (1-Ind.C[[j]])) 
+
+E.Zk = E.Zk +  apply(E.Z[[j]],2,sum)
+
+num = num + t(x[groups == upool.id[j],,drop=F])%*%as.matrix(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat))) #### p by 1
+
+denom = denom + sum(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)))   #####  1 by 1
+}
+
+###########M-step
+
+U = I = E.Z.sum = 0
+
+for(j in 1:length(upool.id)){
+U = U + t(as.matrix(x[groups == upool.id[j],,drop=F] - matrix(rep(num/denom,each=g.n[[j]]),g.n[[j]],p)))%*%as.matrix(apply(as.matrix(E.Z[[j]]),1,sum))
+E.Z.sum = E.Z.sum + sum(E.Z[[j]])
+}
+
+lambda.est = E.Zk/sum(exp(as.matrix(x)%*%as.matrix(theta.hat)))
+
+################################################################
+
+II = -(t(as.matrix(x))%*%(as.vector(exp(x%*%theta.hat))*x)*denom-as.matrix(num)%*%t(as.matrix(num)))/denom^2
+
+I = E.Z.sum*II
+
+theta.est = theta.hat - solve(I)%*%U
+
+####if(any(is.na(theta.est))) theta.est = theta.ini
+
+######################################################################
+
+diff.theta = abs(theta.est-theta.hat)
+diff.lambda = abs(lambda.est-lambda.hat)
+diff.zeta = max(diff.theta, diff.lambda)
+
+theta.hat = theta.est
+lambda.hat = lambda.est
+
+loops = loops+1
+
+} ######### judge end #########
+
+the.est = theta.hat
+lam.est = lambda.hat
+
+
+################## Compute Log-likelihood and AIC/BIC #################
+W = list()
+
+S_prod = c()
+
+for(j in 1:length(upool.id)){
+
+W[[j]] = rowSums(matrix(rep(lambda.hat, each=g.n[[j]] ), g.n[[j]] , k)*matrix(rep(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)),k),g.n[[j]] ,k)*Ind.C[[j]] ) 
+
+S_prod[j] = prod(exp(-W[[j]]))
+
+}
+
+ll = sum(Ys*log( alpha - gamma*S_prod)) + sum((1-Ys)*log( 1-alpha + gamma*S_prod)) 
+AIC = -2*ll+2*(p+K_n)
+BIC = -2*ll+log(length(upool.id))*(p+K_n)
+
+
+
+
+
+t.int =  seq(0,2,length.out= 100)
+
+##t.int =  order.C
+
+Ind.xlab = matrix(rep(order.C,each =length(t.int)),length(t.int),k) <= matrix(rep(t.int,k),length(t.int),k)
+
+lam.int.hat = rowSums(matrix(rep(lam.est,each =length(t.int)),length(t.int),k)*Ind.xlab)
+
+Surv.hat = exp(-lam.int.hat)
+return(list("theta"=the.est,"lam"=lam.est, "Surv"=Surv.hat, "AIC"=AIC, "BIC"=BIC))
+}
+
+
+
+
+
+
+##################################################################################
+# Bootstraps to get SE estimates
+#
+# Ys =  pool outcome
+# x  = design matrix
+# C  = time
+# Kn = number of knots
+# alpha = vector of Se vals
+# beta =  vector of Sp vals
+# groups = vector length n that identifies which pool each subject belongs
+# g.n = vector of pool sizes
+# upool.id = vector of unique pool ids 
+# bs = number bootstrap samples
+
+
+Boot.GTS<-function(Ys, x, C, Kn, alpha, beta, groups, g.n, upool.id, bs, theta.hat1, lambda.hat1){
+gamma = alpha + beta - 1
+
+n = dim(x)[1]
+p = dim(x)[2]
+
+
+#K_n = floor(n^(1/2))
+#K_n = floor(10*(length(Ys)^(1/3)))
+K_n = Kn
+
+max.loops = 1000
+tol = 0.001
+order.C = seq(min(C),max(C),length.out= K_n)
+k = length(order.C)
+
+##### g.n is the final group size 
+
+Ind.C = list()
+
+for(j in 1:length(upool.id)){
+Ind.C[[j]] = matrix(rep(order.C,each = g.n[[j]] ),g.n[[j]] ,k) <= matrix(rep(C[groups == upool.id[j]],k), g.n[[j]] , k) 
+}
+
+
+#theta.save<-matrix(-99,ncol=length(theta.hat1),nrow=bs)   # removed to allow use of doParrallel
+#Surv.save<-matrix(-99,ncol=length(lambda.hat1),nrow=bs)
+
+########################################################
+# Start bootstrapping
+#for(s in 1:bs){
+#print(s)
+
+library(doParallel)
+library(doRNG) 
+library(gtools)
+
+no_cores <- detectCores() - 4  
+cl <- makeCluster(no_cores)  
+registerDoParallel(cl)  
+
+parRES <- foreach(i=1:bs, .combine = rbind, .packages = c("doParallel", "doRNG"),.errorhandling = "remove")%dorng% {
+
+
+theta.hat<-theta.hat1 
+lambda.hat<-lambda.hat1
+diff.zeta = 100
+loops<-0
+
+w <- rgamma(length(upool.id),1,1)  ##### group's weight
+
+############ judge start ##############
+
+while(diff.zeta >= tol && loops < max.loops){
+
+############   E-Step
+
+W = S = E.phi = E.Z = list()
+E.Zk  = rep(0,k)
+num = denom = I.num = 0
+
+
+for(j in 1:length(upool.id)){
+
+W[[j]] = rowSums(matrix(rep(lambda.hat, each=g.n[[j]] ), g.n[[j]] , k)*
+matrix(rep(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)),k),g.n[[j]] ,k)*Ind.C[[j]] ) 
+
+S[[j]] = exp(-W[[j]])
+
+E.phi[[j]] = Ys[j]*alpha[j]*(1-S[[j]])/(alpha[j]-gamma[j]*prod(S[[j]])) + 
+(1-Ys[j])*(1-alpha[j])*(1-S[[j]])/(1-alpha[j]+gamma[j]*prod(S[[j]]))
+
+E.Z[[j]] = matrix(rep(lambda.hat, each=g.n[[j]]),g.n[[j]], k)*
+                 matrix(rep(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)),k),g.n[[j]],k)*
+                 (E.phi[[j]]*(1-S[[j]])^(-1)*Ind.C[[j]] + (1-Ind.C[[j]])) 
+
+E.Zk = E.Zk +  apply(w[j]*E.Z[[j]],2,sum)
+
+num = num + w[j]*t(x[groups == upool.id[j],,drop=F])%*%as.matrix(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat))) #### p by 1
+
+denom = denom + w[j]*sum(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat)))   #####  1 by 1
+
+I.num = I.num + w[j]*t(x[groups == upool.id[j],,drop=F])%*%(x[groups == upool.id[j],,drop=F]*as.vector(exp(as.matrix(x[groups == upool.id[j],,drop=F])%*%as.matrix(theta.hat))))
+
+}
+
+###########M-step
+
+U = I = E.Z.sum = 0
+
+for(j in 1:length(upool.id)){
+U = U + w[j]*t(as.matrix(x[groups == upool.id[j],,drop=F] - matrix(rep(num/denom,each=g.n[[j]]),g.n[[j]],p)))%*%as.matrix(apply(
+as.matrix(E.Z[[j]]),1,sum))
+
+E.Z.sum = E.Z.sum + sum(w[j]*E.Z[[j]])
+}
+
+lambda.est = E.Zk/denom
+
+################################################################
+
+II = -(I.num*denom-as.matrix(num)%*%t(as.matrix(num)))/denom^2
+
+I = E.Z.sum*II
+
+theta.est = theta.hat - solve(I)%*%U
+
+######################################################################
+
+diff.theta = abs(theta.est-theta.hat)
+diff.lambda = abs(lambda.est-lambda.hat)
+
+diff.zeta = max(diff.theta, diff.lambda)
+
+theta.hat = theta.est
+lambda.hat = lambda.est
+
+loops = loops+1
+
+} ######### judge end #########
+
+t.int =  seq(min(C),max(C),length.out= K_n)
+Ind.xlab = matrix(rep(order.C,each =length(t.int)),length(t.int),k) <= matrix(rep(t.int,k),length(t.int),k)
+lam.int.hat = rowSums(matrix(rep(lambda.hat,each =length(t.int)),length(t.int),k)*Ind.xlab)
+Surv.hat = exp(-lam.int.hat)
+
+#theta.save[s,]<-theta.hat  # Altered to allow for use of doParrallel
+#Surv.save[s,]<-Surv.hat
+return(c(theta.hat,Surv.hat))
+
+}
+stopCluster(cl) 
+
+theta.save<-parRES[,1:length(theta.hat1)]   
+Surv.save<-parRES[,-c(1:length(theta.hat1))]
+
+return(list("bss"=theta.save, "Surv"=Surv.save))
+}
+
+
+
+
+
+
+
+
+############################################################################
+############################################################################
+# Functions that run the simulation study
+
+#############################################################################
+# Function to generate data according to the design outlined in the 
+# main manuscript
+
+data.gen1<-function(alpha, beta, N, gs, iter){
+
+library(gtools)
+n = N/gs  ##### group number
+
+theta0 = c(0.5, -0.5) ## true value of regression parameters
+
+set.seed(100+iter)
+
+x1 = rbinom(N,1,0.5)
+x2 = runif(N,0,1)
+x = cbind(x1,x2)  
+
+# generate failure time via inverse CDF method
+v <- runif(N, 0, 1)
+t <-  10*(exp(-log(v)*(exp(as.matrix(x)%*%theta0))^(-1))-1)
+
+## the observation time C is generated from U(0,tau)
+C <- runif(N,0,2) 
+
+phi = 1*( t<=C)  ######  true individual results
+
+gamma = alpha + beta - 1
+groups = permute(rep(1:ceiling(N/gs), length.out = N))
+upool.id<-unique(groups)
+
+g.n<-NULL
+for(j in 1:ceiling(N/gs)){
+g.n[[j]] = length(C[groups == upool.id[j]]) 
+}
+
+
+Yp = sapply(1:ceiling(N/gs), FUN = function(X){  
+						temp  = phi[groups == upool.id[X]];
+						Delta = ifelse(sum(temp) != 0, 1, 0);
+						Y = ifelse(Delta == 1, rbinom(1, 1, prob = alpha), rbinom(1, 1, prob = 1-beta)); 				
+						return(Y)})
+
+Yi = sapply(1:N, FUN=function(X){
+				temp = phi[X];
+                                Y = ifelse(temp==1, rbinom(1, 1, prob = alpha), rbinom(1, 1, prob = 1-beta))
+                                return(Y)})
+
+return(list("Yp"=Yp, "Yi"=Yi, "x"=x, "C"=C, "groups"=groups, "g.n"=g.n, "upool.id"=upool.id))
+}
+
+
+
+
+
+
+
+
+
+
+#############################################################################
+# Function to generate data according to the design outlined in the 
+# main manuscript
+
+data.gen2<-function(alpha, beta, iter){
+
+library(gtools)
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5) ## true value of regression parameters
+
+set.seed(100+iter)
+
+n = 7000                                    ##### number of groups
+gs = sample(c(1,2,3,4), n, replace = TRUE)  ##### group size 
+N = sum(gs)                                 ##### total number of individuals
+
+x1 = rbinom(N,1,0.5)
+x2 = rbinom(N,1,0.5)
+x3 = rbinom(N,1,0.5)
+x4 = rbinom(N,1,0.5)
+x5 = rbinom(N,1,0.5)
+x = cbind(x1,x2,x3,x4,x5)  
+
+# generate failure time via inverse CDF method
+v <- runif(N, 0, 1)
+t <-  10*(exp(-log(v)*(exp(as.matrix(x)%*%theta0))^(-1))-1)
+
+## the observation time C is generated from U(0,tau)
+C <- runif(N,0,2) 
+
+phi = 1*( t<=C)  ######  true individual results
+
+gamma = alpha + beta - 1
+
+temp.groups = c()
+
+for(i in 1:n){
+temp.groups = c(temp.groups, rep(i,each = gs[i]))
+}
+groups = permute(temp.groups)
+upool.id<-unique(groups)
+
+g.n<-NULL
+for(j in 1:n){
+g.n[[j]] = length(C[groups == upool.id[j]]) 
+}
+
+
+Yp = sapply(1:n, FUN = function(X){  
+				   temp  = phi[groups == upool.id[X]];
+				   Delta = ifelse(sum(temp) != 0, 1, 0);
+				   Y = ifelse(Delta == 1, rbinom(1, 1, prob = alpha), rbinom(1, 1, prob = 1-beta)); 				
+				   return(Y)})
+
+Yi = sapply(1:N, FUN=function(X){
+				temp = phi[X];
+                                Y = ifelse(temp==1, rbinom(1, 1, prob = alpha), rbinom(1, 1, prob = 1-beta))
+                                return(Y)})
+
+return(list("Yp"=Yp, "Yi"=Yi, "x"=x, "C"=C, "groups"=groups, "g.n"=g.n, "upool.id"=upool.id))
+}
+
+
+
+##############################################################
+# Main simulation function
+
+sim.study<-function(alpha, beta, study){
+
+
+if(study=="main"){
+
+sims<-500
+#########################################################
+# Saving devices
+theta.p = matrix(-99,sims,2)
+Se.theta.p = matrix(-99,sims,2)
+cp.theta.p = matrix(-99,sims,2)
+
+theta.i = matrix(-99,sims,2)
+Se.theta.i = matrix(-99,sims,2)
+cp.theta.i = matrix(-99,sims,2)
+
+theta.is = matrix(-99,sims,2)
+Se.theta.is = matrix(-99,sims,2)
+cp.theta.is = matrix(-99,sims,2)
+
+surv.p = matrix(-99,sims,100)
+surv.i = matrix(-99,sims,100)
+surv.is = matrix(-99,sims,100)
+
+
+for(s in 1:sims){
+N<-10000
+gs<-5
+data<-data.gen1(alpha, beta, N, gs, iter=s)
+
+Yp<-data$Yp
+Yi<-data$Yi
+x<-data$x
+C<-data$C
+groups<-data$groups
+g.n<-data$g.n
+upool.id<-data$upool.id
+
+###########################################################
+# Fits the model to pooled data
+alphap = rep(alpha,length(Yp))
+betap = rep(beta,length(Yp))
+Kn<-floor(10*(length(Yp)^(1/3)))
+
+res1<-EM.GTS(Ys=Yp,x=x,C=C,Kn=Kn,alpha=alphap,beta=betap, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yp,x=x,C=C,Kn=Kn,alpha=alphap,beta=betap, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, -0.5)
+theta.p[s,] <- EST 
+Se.theta.p[s,] <- SE 
+cp.theta.p[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.p[s, ] <-res1$Surv 
+
+print(c(1,s))
+
+###########################################################
+# Fits the model to full individual data
+
+alphai = rep(alpha,length(Yi))
+betai = rep(beta,length(Yi))
+Kn<-floor(10*(length(Yi)^(1/3)))
+groups<-1:N
+g.n<-as.list(rep(1,N))
+upool.id<-1:N
+res1<-EM.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, -0.5)
+theta.i[s,] <- EST 
+Se.theta.i[s,] <- SE 
+cp.theta.i[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.i[s, ] <-res1$Surv 
+
+print(c(2,s))
+
+
+###########################################################
+# Fits the model to subset individual data
+
+id<-1:ceiling(N/gs)
+Yi<-Yi[id]
+x<-x[id,]
+C<-C[id]
+
+alphai = rep(alpha,length(Yi))
+betai = rep(beta,length(Yi))
+Kn<-floor(10*(length(Yi)^(1/3)))
+groups<-groups[id]
+g.n<-as.list(rep(1,length(id)))
+upool.id<-upool.id[id]
+res1<-EM.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, -0.5)
+theta.is[s,] <- EST 
+Se.theta.is[s,] <- SE 
+cp.theta.is[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.is[s, ] <-res1$Surv 
+
+print(c(3,s))
+
+
+}}
+
+if(study=="supp"){
+
+
+sims<-500
+#########################################################
+# Saving devices
+theta.p = matrix(-99,sims,5)
+Se.theta.p = matrix(-99,sims,5)
+cp.theta.p = matrix(-99,sims,5)
+
+theta.i = matrix(-99,sims,5)
+Se.theta.i = matrix(-99,sims,5)
+cp.theta.i = matrix(-99,sims,5)
+
+theta.is = matrix(-99,sims,5)
+Se.theta.is = matrix(-99,sims,5)
+cp.theta.is = matrix(-99,sims,5)
+
+surv.p = matrix(-99,sims,100)
+surv.i = matrix(-99,sims,100)
+surv.is = matrix(-99,sims,100)
+
+
+for(s in 1:sims){
+
+data<-data.gen2(alpha, beta, iter=s)
+
+Yp<-data$Yp
+Yi<-data$Yi
+x<-data$x
+C<-data$C
+groups<-data$groups
+g.n<-data$g.n
+upool.id<-data$upool.id
+
+###########################################################
+# Fits the model to pooled data
+alphap = rep(alpha,length(Yp))
+betap = rep(beta,length(Yp))
+Kn<-floor(10*(length(Yp)^(1/3)))
+
+res1<-EM.GTS(Ys=Yp,x=x,C=C,Kn=Kn,alpha=alphap,beta=betap, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yp,x=x,C=C,Kn=Kn,alpha=alphap,beta=betap, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5)
+theta.p[s,] <- EST 
+Se.theta.p[s,] <- SE 
+cp.theta.p[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.p[s, ] <-res1$Surv 
+
+print(c(1,s))
+
+###########################################################
+# Fits the model to full individual data
+
+alphai = rep(alpha,length(Yi))
+betai = rep(beta,length(Yi))
+Kn<-floor(10*(length(Yi)^(1/3)))
+N<-length(Yi)
+groups<-1:N
+g.n<-as.list(rep(1,N))
+upool.id<-1:N
+res1<-EM.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5)
+theta.i[s,] <- EST 
+Se.theta.i[s,] <- SE 
+cp.theta.i[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.i[s, ] <-res1$Surv 
+
+print(c(2,s))
+
+###########################################################
+# Fits the model to subset individual data
+
+id<-1:7000
+Yi<-Yi[id]
+x<-x[id,]
+C<-C[id]
+
+alphai = rep(alpha,length(Yi))
+betai = rep(beta,length(Yi))
+Kn<-floor(10*(length(Yi)^(1/3)))
+groups<-groups[id]
+g.n<-as.list(rep(1,length(id)))
+upool.id<-upool.id[id]
+res1<-EM.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id)
+res2<-Boot.GTS(Ys=Yi,x=x,C=C,Kn=Kn,alpha=alphai,beta=betai, groups=groups, g.n=g.n, upool.id=upool.id, bs=100, theta.hat1=res1$theta, lambda.hat1=res1$lam)
+
+EST <- res1$theta
+SE <- apply(res2$bss,2,sd)
+theta0 = c(0.5, 0.5, -0.5, -0.5, -0.5)
+theta.is[s,] <- EST 
+Se.theta.is[s,] <- SE 
+cp.theta.is[s,] <- (EST-1.96*SE < theta0)*(theta0< EST +1.96*SE)
+surv.is[s, ] <-res1$Surv 
+
+print(c(3,s))
+
+}}
+
+
+return(list("theta.p"=theta.p, "Se.theta.p"=Se.theta.p, "cp.theta.p"=cp.theta.p, "surv.p"=surv.p,
+            "theta.i"=theta.i, "Se.theta.i"=Se.theta.i, "cp.theta.i"=cp.theta.i, "surv.i"=surv.i,
+            "theta.is"=theta.is, "Se.theta.is"=Se.theta.is, "cp.theta.is"=cp.theta.is, "surv.is"=surv.is))
+}
+
+
+
+
+
